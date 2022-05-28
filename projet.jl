@@ -27,6 +27,10 @@ function f(u)
     return [p-u[1]*u[2]^2;q-u[2]+u[1]*u[2]^2]
 end
 
+function ∇f(u)
+    return [-u[2]^2 -2*u[1]*u[2];u[2]^2 -1+2*u[1]*u[2]]
+end
+
 # applique f à tous les éléments du vecteur de vecteurs
 function F(u)
     v = zeros(nb_x,2)
@@ -36,12 +40,19 @@ function F(u)
     return v
 end
 
-# Etat initial = état stable + fluctuation
-function u0(x)
-    return  [p/((p+q)^2)+A*sin(ω1*x),p+q+A*cos(ω2*x)]
-end
-
 #################### Euler explicite ####################
+
+function ∇F(u)
+    v = zeros(2*nb_x,2*nb_x)
+    for i in 1:2*nb_x
+        df = ∇f([u[i];u[nb_x+i]])
+        v[i,i] = df[1,1]
+        v[i,nb_x+i] = df[1,2]
+        v[nb_x+i,i] = df[2,1]
+        v[nb_x+i,nb_x+i] = df[2,2]
+    end
+    return v
+end
 
 # M permet de faire des dérivées secondes discrètes
 M = zeros(nb_x,nb_x)
@@ -53,6 +64,29 @@ end
 M[nb_x,nb_x]=-2
 M[nb_x,1]=1
 M[1,nb_x]=1
+
+M2 = zeros(2*nb_x,2*nb_x)
+for j in [0,nb_x]
+    for i in 1:nb_x-1
+        M2[i+j,i+j]=-2
+        M2[i+j,i+j+1]=1
+        M2[i+j+1,i+j]=1
+    end
+    M2[nb_x+j,nb_x+j]=-2
+    M2[nb_x+j,1+j]=1
+    M2[1+j,nb_x+j]=1
+end
+
+D2 = zeros(2*nb_x,2*nb_x)
+for i in 1:nb_x
+    D2[i,i]=1
+    D2[i+nb_x,i+nb_x]=d
+end
+
+# Etat initial = état stable + fluctuation
+function u0(x)
+    return  [p/((p+q)^2)+A*sin(ω1*x),p+q+A*cos(ω2*x)]
+end
 
 # Intégration de l'edp avec la méthode d'Euler explicite
 function euler_explicite(Δt,Δx,T, u0)
@@ -188,7 +222,7 @@ anim = @animate for i ∈ 1:n
     Plots.plot(X,[Y1 Y2 u[:,lst_i[i],1] u[:,lst_i[i],2]],legend=false,ylim=(y1,y2))
 end
 
-gif(anim, "anim_fps15.gif", fps = fps)
+gif(anim, fps = fps)
 
 #Plots.plot(X,[Y1 Y2 u[:,nb_t,1] u[:,nb_t,2]],legend=false)
 

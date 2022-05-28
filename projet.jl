@@ -4,6 +4,8 @@ using Plots
 using DifferentialEquations
 pygui(true)
 
+#################### Paramètres ####################
+
 p=2.0
 q=0.05
 d=0.1
@@ -19,6 +21,8 @@ nb_t = floor(Int,T/Δt)
 Δx = 2*pi/nb_x
 Δt = T/nb_t
 
+#################### Modélisation du problème ####################
+
 function f(u)
     return [p-u[1]*u[2]^2;q-u[2]+u[1]*u[2]^2]
 end
@@ -32,6 +36,13 @@ function F(u)
     return v
 end
 
+# Etat initial = état stable + fluctuation
+function u0(x)
+    return  [p/((p+q)^2)+A*sin(ω1*x),p+q+A*cos(ω2*x)]
+end
+
+#################### Euler explicite ####################
+
 # M permet de faire des dérivées secondes discrètes
 M = zeros(nb_x,nb_x)
 for i in 1:nb_x-1
@@ -42,11 +53,6 @@ end
 M[nb_x,nb_x]=-2
 M[nb_x,1]=1
 M[1,nb_x]=1
-
-# Etat initial = état stable + fluctuation
-function u0(x)
-    return  [p/((p+q)^2)+A*sin(ω1*x),p+q+A*cos(ω2*x)]
-end
 
 # Intégration de l'edp avec la méthode d'Euler explicite
 function euler_explicite(Δt,Δx,T, u0)
@@ -69,6 +75,61 @@ function euler_explicite(Δt,Δx,T, u0)
     return u
 end
 
+#################### Euler implicite ####################
+
+function g(Δt,Δx, x, u)
+    x - u[:,t] - Δt*F2(x) - Δt/(Δx^2)*D2*M2*x
+end
+
+# applique f à tous les éléments du vecteur de vecteurs
+function F2(u)
+    v = zeros(2*nb_x)
+    for i in 1:nb_x
+        v[i] = f(u[i,1])
+        v[nb_x+i] =f(u[i,2]) 
+    end
+    return v
+end
+
+function flatten(u)
+    v = np.zeros(2*nb_x)
+    for  i in 1:nb_x
+        v[i,:]=u[i,:,1]
+        v[nb_x+i,:]=u[i,:,2]
+    end
+    return v
+end
+
+function deflatten(u)
+    v = np.zeros(nb_x,2)
+    for i in 1:nb_x
+        v[i,:,1]=u[i,:]
+        v[i,:,2]=u[nb_x+i,:]
+    end
+    return v
+end
+
+function euler_implicite(Δt,Δx,T, u0)
+    nb_x = floor(Int,2*pi/Δx)
+    Δx = 2*pi/nb_x # on arrondi Δx pour qu'il n'y ait pas de problème au bord
+    nb_t = floor(Int,T/Δt)
+    Δt = T/nb_t
+    u = zeros(2*nb_x,nb_t)
+
+    # initialisation
+    for k in 1:2*nb_x
+        u[k,1] = u0(k*Δx)
+    end
+
+    # intégration
+    for t in 1:(nb_t-1)
+        u[:,t+1] = newton(g,Δt,Δx, x, u)
+    end
+
+    return u    
+end
+
+#################### Etude théorique ####################
 
 # Matrice d'eq diff pour les coeff de Fourrier
 function J(n,d)
@@ -100,6 +161,8 @@ function dichotomie(eps)
     return (d_min+d_max)/2.0
 end
 
+#################### Animation ####################
+
 tps_affichage = T
 fps = 25
 n=floor(Int,fps*tps_affichage)  # nombre de frames
@@ -128,3 +191,5 @@ end
 gif(anim, "anim_fps15.gif", fps = fps)
 
 #Plots.plot(X,[Y1 Y2 u[:,nb_t,1] u[:,nb_t,2]],legend=false)
+
+####################  ####################

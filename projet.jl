@@ -9,7 +9,7 @@ pygui(true)
 p=2.0
 q=0.05
 d=0.1
-T=7 # durée de la simulation
+T=3 # durée de la simulation
 Δx = 0.1
 Δt = 0.005
 A = 1
@@ -20,6 +20,10 @@ nb_x = floor(Int,2*pi/Δx)
 nb_t = floor(Int,T/Δt)
 Δx = 2*pi/nb_x
 Δt = T/nb_t
+
+function norme(v)
+    return sum([elt^2 for elt in v])
+end
 
 #################### Modélisation du problème ####################
 
@@ -44,7 +48,7 @@ end
 
 function ∇F(u)
     v = zeros(2*nb_x,2*nb_x)
-    for i in 1:2*nb_x
+    for i in 1:nb_x
         df = ∇f([u[i];u[nb_x+i]])
         v[i,i] = df[1,1]
         v[i,nb_x+i] = df[1,2]
@@ -111,22 +115,27 @@ end
 
 #################### Euler implicite ####################
 
-function g(Δt,Δx, x, u)
-    x - u[:,t] - Δt*F2(x) - Δt/(Δx^2)*D2*M2*x
+function g(Δt,Δx, x, u, t)
+    return x - u[:,t] - Δt*F2(x) - Δt/(Δx^2)*D2*M2*x
+end
+
+function ∇g(Δt,Δx,x)
+    return I-Δt*∇F(x)-Δt/(Δx^2)*D2*M2
 end
 
 # applique f à tous les éléments du vecteur de vecteurs
 function F2(u)
     v = zeros(2*nb_x)
     for i in 1:nb_x
-        v[i] = f(u[i,1])
-        v[nb_x+i] =f(u[i,2]) 
+        x = f([u[i],u[i+nb_x]])
+        v[i] = x[1]
+        v[nb_x+i] =x[2]
     end
     return v
 end
 
 function flatten(u)
-    v = np.zeros(2*nb_x)
+    v = zeros(2*nb_x)
     for  i in 1:nb_x
         v[i,:]=u[i,:,1]
         v[nb_x+i,:]=u[i,:,2]
@@ -135,12 +144,22 @@ function flatten(u)
 end
 
 function deflatten(u)
-    v = np.zeros(nb_x,2)
+    v = zeros(nb_x,nb_t,2)
     for i in 1:nb_x
-        v[i,:,1]=u[i,:]
-        v[i,:,2]=u[nb_x+i,:]
+        v[i,:,1]=u[i,:,:]
+        v[i,:,2]=u[nb_x+i,:,:]
     end
     return v
+end
+
+function newton(g,∇g,Δt,Δx,x0,u,t,eps)
+    x=x0
+    i=0
+    while(norme(g(Δt,Δx, x, u, t))>eps && i<100)
+        x = x - inv(∇g(Δt,Δx, x))*g(Δt,Δx, x, u, t)
+        i+=1
+    end
+    return x
 end
 
 function euler_implicite(Δt,Δx,T, u0)
@@ -151,16 +170,18 @@ function euler_implicite(Δt,Δx,T, u0)
     u = zeros(2*nb_x,nb_t)
 
     # initialisation
-    for k in 1:2*nb_x
-        u[k,1] = u0(k*Δx)
+    for k in 1:nb_x
+        v = u0(k*Δx)
+        u[k,1] = v[1]
+        u[k+nb_x,1] = v[2]
     end
 
     # intégration
     for t in 1:(nb_t-1)
-        u[:,t+1] = newton(g,Δt,Δx, x, u)
+        u[:,t+1] = newton(g,∇g,Δt,Δx, u[:,t], u, t,1e-5)
     end
 
-    return u    
+    return u
 end
 
 #################### Etude théorique ####################
@@ -204,7 +225,9 @@ lst_t = [1/n*t*T for t in 1:n]  # liste des temps auxquels on affiche
 lst_i = [floor(Int,t/Δt) for t in lst_t]    # liste des indices correspondants
 
 # Calcul de la solution
-u = euler_explicite(Δt,Δx,T,u0)
+#u = euler_explicite(Δt,Δx,T,u0)
+u = euler_implicite(Δt,Δx,T,u0)
+u = deflatten(u)
 
 # abscisses pour
 X = [k*Δx for k in 1:nb_x]

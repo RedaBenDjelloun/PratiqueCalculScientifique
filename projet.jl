@@ -9,7 +9,7 @@ pygui(true)
 p=2.0
 q=0.05
 d=0.1
-T=3 # durée de la simulation
+T=3.0 # durée de la simulation
 Δx = 0.1
 Δt = 0.005
 A = 1
@@ -114,16 +114,7 @@ function euler_explicite(Δt,Δx,T, u0)
 end
 
 #################### Euler implicite ####################
-
-function g(Δt,Δx, x, u, t)
-    return x - u[:,t] - Δt*F2(x) - Δt/(Δx^2)*D2*M2*x
-end
-
-function ∇g(Δt,Δx,x)
-    return I-Δt*∇F(x)-Δt/(Δx^2)*D2*M2
-end
-
-# applique f à tous les éléments du vecteur de vecteurs
+# applique f à tous les éléments du vecteur applatit
 function F2(u)
     v = zeros(2*nb_x)
     for i in 1:nb_x
@@ -132,6 +123,14 @@ function F2(u)
         v[nb_x+i] =x[2]
     end
     return v
+end
+
+function g(Δt,Δx, x, u, t)
+    return x - u[:,t] - Δt*F2(x) - Δt/(Δx^2)*D2*M2*x
+end
+
+function ∇g(Δt,Δx,x)
+    return I-Δt*∇F(x)-Δt/(Δx^2)*D2*M2
 end
 
 function flatten(u)
@@ -144,7 +143,7 @@ function flatten(u)
 end
 
 function deflatten(u)
-    v = zeros(nb_x,nb_t,2)
+    v = zeros(size(u)[1]÷2,size(u)[2],2)
     for i in 1:nb_x
         v[i,:,1]=u[i,:,:]
         v[i,:,2]=u[nb_x+i,:,:]
@@ -181,8 +180,35 @@ function euler_implicite(Δt,Δx,T, u0)
         u[:,t+1] = newton(g,∇g,Δt,Δx, u[:,t], u, t,1e-5)
     end
 
-    return u
+    return deflatten(u)
 end
+
+#################### Boîte noire #######################
+function boite_noire(Δt,Δx,T,u0)
+    nb_x = floor(Int,2*pi/Δx)
+    Δx = 2*pi/nb_x # on arrondi Δx pour qu'il n'y ait pas de problème au bord
+    nb_t = floor(Int,T/Δt)
+    Δt = T/nb_t
+    u_ini = zeros(2*nb_x)
+
+    # initialisation
+    for k in 1:nb_x
+        v = u0(k*Δx)
+        u_ini[k,1] = v[1]
+        u_ini[k+nb_x] = v[2]
+    end
+
+    # definition du problème
+    edp(u,p,t) = F2(u) + 1/(Δx^2)*D2*M2*u
+    tspan = (0.0,T)
+    prob = ODEProblem(edp,u_ini,tspan)
+
+    # résolution
+    sol = solve(prob,saveat=Δt)
+
+    return deflatten(reduce(hcat,sol.u))
+end
+
 
 #################### Etude théorique ####################
 
@@ -225,9 +251,9 @@ lst_t = [1/n*t*T for t in 1:n]  # liste des temps auxquels on affiche
 lst_i = [floor(Int,t/Δt) for t in lst_t]    # liste des indices correspondants
 
 # Calcul de la solution
-#u = euler_explicite(Δt,Δx,T,u0)
-u = euler_implicite(Δt,Δx,T,u0)
-u = deflatten(u)
+u = euler_explicite(Δt,Δx,T,u0)
+#u = euler_implicite(Δt,Δx,T,u0)
+#u = boite_noire(Δt,Δx,T,u0)
 
 # abscisses pour
 X = [k*Δx for k in 1:nb_x]

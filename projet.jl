@@ -4,34 +4,46 @@ using Plots
 using DifferentialEquations
 pygui(true)
 
+
+# solveurs génériques
+# vec + devec
+# regrouper
+# une seule représentation
+# tester les fonctions dans un begin end
+
 #################### Paramètres ####################
 
+# user parameters
 p=2.0
 q=0.05
-d=0.1
-T=3.0 # durée de la simulation
+d=0.03
+T=5.0 # durée de la simulation
 Δx = 0.1
 Δt = 0.005
+
+# initial state u0 = u_eq + A * [sin(k1*x),cos(k2*x)]
 A = 1
-ω1 = 1
-ω2 = 2
+k1 = 1
+k2 = 2
+# Etat initial = état stable + fluctuation
+function u0(x)
+    return  [p/((p+q)^2)+A*sin(k1*x),p+q+A*cos(k2*x)]
+end
+
+# computed parameters
 D =[1. 0.;0. d]
 nb_x = floor(Int,2*pi/Δx)
 nb_t = floor(Int,T/Δt)
 Δx = 2*pi/nb_x
 Δt = T/nb_t
 
-function norme(v)
-    return sum([elt^2 for elt in v])
-end
-
-#################### Modélisation du problème ####################
+#################### F and derivatives ####################
 
 function f(u)
     return [p-u[1]*u[2]^2;q-u[2]+u[1]*u[2]^2]
 end
 
-function ∇f(u)
+function Jf(u)
     return [-u[2]^2 -2*u[1]*u[2];u[2]^2 -1+2*u[1]*u[2]]
 end
 
@@ -44,12 +56,10 @@ function F(u)
     return v
 end
 
-#################### Euler explicite ####################
-
-function ∇F(u)
+function JF(u)
     v = zeros(2*nb_x,2*nb_x)
     for i in 1:nb_x
-        df = ∇f([u[i];u[nb_x+i]])
+        df = Jf([u[i];u[nb_x+i]])
         v[i,i] = df[1,1]
         v[i,nb_x+i] = df[1,2]
         v[nb_x+i,i] = df[2,1]
@@ -57,6 +67,8 @@ function ∇F(u)
     end
     return v
 end
+
+#################### Matrices ####################
 
 # M permet de faire des dérivées secondes discrètes
 M = zeros(nb_x,nb_x)
@@ -68,18 +80,9 @@ end
 M[nb_x,nb_x]=-2
 M[nb_x,1]=1
 M[1,nb_x]=1
+M = M/Δx^2
 
-M2 = zeros(2*nb_x,2*nb_x)
-for j in [0,nb_x]
-    for i in 1:nb_x-1
-        M2[i+j,i+j]=-2
-        M2[i+j,i+j+1]=1
-        M2[i+j+1,i+j]=1
-    end
-    M2[nb_x+j,nb_x+j]=-2
-    M2[nb_x+j,1+j]=1
-    M2[1+j,nb_x+j]=1
-end
+M2 = [M zeros(nb_x,nb_x); zeros(nb_x,nb_x) M]
 
 D2 = zeros(2*nb_x,2*nb_x)
 for i in 1:nb_x
@@ -87,17 +90,23 @@ for i in 1:nb_x
     D2[i+nb_x,i+nb_x]=d
 end
 
-# Etat initial = état stable + fluctuation
-function u0(x)
-    return  [p/((p+q)^2)+A*sin(ω1*x),p+q+A*cos(ω2*x)]
+###################### u representation ###################
+
+function vect(u)
+    [u[:,1], u[:,2]]
 end
 
+function devect(u)
+    devect_u = zeros(nb_x,2)
+    for i in 1:nb_x
+        devect_u[i,:] = [u[i], u[i+nb_x]]
+    end
+end
+
+##################### Euler Explicite ######################
+
 # Intégration de l'edp avec la méthode d'Euler explicite
-function euler_explicite(Δt,Δx,T, u0)
-    nb_x = floor(Int,2*pi/Δx)
-    Δx = 2*pi/nb_x # on arrondi Δx pour qu'il n'y ait pas de problème au bord
-    nb_t = floor(Int,T/Δt)
-    Δt = T/nb_t
+function euler_explicite(u0)
     u = zeros(nb_x,nb_t,2)
 
     # initialisation
@@ -107,7 +116,7 @@ function euler_explicite(Δt,Δx,T, u0)
 
     # intégration
     for t in 1:(nb_t-1)
-        u[:,t+1,:] = u[:,t,:] + Δt*F(u[:,t,:]) + Δt/(Δx^2)*M*u[:,t,:]*D
+        u[:,t+1,:] = u[:,t,:] + Δt*F(u[:,t,:]) + Δt*M*u[:,t,:]*D
     end
 
     return u
@@ -126,11 +135,11 @@ function F2(u)
 end
 
 function g(Δt,Δx, x, u, t)
-    return x - u[:,t] - Δt*F2(x) - Δt/(Δx^2)*D2*M2*x
+    return x - u[:,t] - Δt*F2(x) - Δt*D2*M2*x
 end
 
-function ∇g(Δt,Δx,x)
-    return I-Δt*∇F(x)-Δt/(Δx^2)*D2*M2
+function Jg(Δt,Δx,x)
+    return I-Δt*JF(x)-Δt*D2*M2
 end
 
 function flatten(u)
@@ -151,21 +160,17 @@ function deflatten(u)
     return v
 end
 
-function newton(g,∇g,Δt,Δx,x0,u,t,eps)
+function newton(g,Jg,Δt,Δx,x0,u,t,eps)
     x=x0
     i=0
-    while(norme(g(Δt,Δx, x, u, t))>eps && i<100)
-        x = x - inv(∇g(Δt,Δx, x))*g(Δt,Δx, x, u, t)
+    while(norm(g(Δt,Δx, x, u, t))>eps && i<100)
+        x = x - inv(Jg(Δt,Δx, x))*g(Δt,Δx, x, u, t)
         i+=1
     end
     return x
 end
 
-function euler_implicite(Δt,Δx,T, u0)
-    nb_x = floor(Int,2*pi/Δx)
-    Δx = 2*pi/nb_x # on arrondi Δx pour qu'il n'y ait pas de problème au bord
-    nb_t = floor(Int,T/Δt)
-    Δt = T/nb_t
+function euler_implicite(u0)
     u = zeros(2*nb_x,nb_t)
 
     # initialisation
@@ -177,18 +182,14 @@ function euler_implicite(Δt,Δx,T, u0)
 
     # intégration
     for t in 1:(nb_t-1)
-        u[:,t+1] = newton(g,∇g,Δt,Δx, u[:,t], u, t,1e-5)
+        u[:,t+1] = newton(g,Jg,Δt,Δx, u[:,t], u, t,1e-5)
     end
 
     return deflatten(u)
 end
 
 #################### Boîte noire #######################
-function boite_noire(Δt,Δx,T,u0)
-    nb_x = floor(Int,2*pi/Δx)
-    Δx = 2*pi/nb_x # on arrondi Δx pour qu'il n'y ait pas de problème au bord
-    nb_t = floor(Int,T/Δt)
-    Δt = T/nb_t
+function boite_noire(u0)
     u_ini = zeros(2*nb_x)
 
     # initialisation
@@ -199,7 +200,7 @@ function boite_noire(Δt,Δx,T,u0)
     end
 
     # definition du problème
-    edp(u,p,t) = F2(u) + 1/(Δx^2)*D2*M2*u
+    edp(u,p,t) = F2(u) + D2*M2*u
     tspan = (0.0,T)
     prob = ODEProblem(edp,u_ini,tspan)
 
@@ -251,9 +252,9 @@ lst_t = [1/n*t*T for t in 1:n]  # liste des temps auxquels on affiche
 lst_i = [floor(Int,t/Δt) for t in lst_t]    # liste des indices correspondants
 
 # Calcul de la solution
-u = euler_explicite(Δt,Δx,T,u0)
-#u = euler_implicite(Δt,Δx,T,u0)
-#u = boite_noire(Δt,Δx,T,u0)
+#u = euler_explicite(u0)
+#u = euler_implicite(u0)
+u = boite_noire(u0)
 
 # abscisses pour
 X = [k*Δx for k in 1:nb_x]

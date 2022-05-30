@@ -4,6 +4,13 @@ using Plots
 using DifferentialEquations
 pygui(true)
 
+
+# solveurs génériques
+# vec + devec
+# regrouper
+# une seule représentation
+# tester les fonctions dans un begin end
+
 #################### Paramètres ####################
 
 # user parameters

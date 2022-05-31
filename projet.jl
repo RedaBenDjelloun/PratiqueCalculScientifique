@@ -4,7 +4,7 @@ using Plots
 using DifferentialEquations
 pygui(true)
 
-#################### Paramètres ####################
+#################### Parameters ####################
 
 # user parameters
 p=2.0
@@ -20,15 +20,16 @@ k1 = 1
 k2 = 2
 
 # computed parameters
+u_eq = [p/((p+q)^2),p+q]
 D =[1. 0.;0. d]
-nb_x = floor(Int,2*pi/Δx)
+nb_x = floor(Int,2pi/Δx)
 nb_t = floor(Int,T/Δt)
-Δx = 2*pi/nb_x
+Δx = 2pi/nb_x
 Δt = T/nb_t
 u0 = zeros(nb_x,2)
 for i in 1:nb_x
-    x = i*Δx
-    u0[i,:] = [p/((p+q)^2)+A*sin(k1*x),p+q+A*cos(k2*x)]
+    local x = i*Δx
+    u0[i,:] = u_eq+A*[sin(k1*x),cos(k2*x)]
 end
 
 # M is the discrete operator for second derivative
@@ -43,6 +44,12 @@ M[nb_x,1]=1
 M[1,nb_x]=1
 M = M/Δx^2
 
+# test of M
+begin
+    x = [sin(k*Δx) for k in 1:nb_x]
+    @assert(norm(M*x+x)<1e-2)
+end
+
 # M2 is the discrete operator for 2nd derivative when u is in the vectorial form
 M2 = [M zeros(nb_x,nb_x); zeros(nb_x,nb_x) M]
 
@@ -53,17 +60,17 @@ for i in 1:nb_x
 end
 
 
-###################### u representation ###################
+#################### u representation ####################
+# For the user u is always in the form u[i,c,t] or u[i,c] (form of reference)
+# In the solvers u is in the form [u[:,1,:] u[:,2,:]] or [u[:,1] u[:,2]]
 
 # reshape a matrix into a vector column by column
-function vect(u)
-    u[:]
-end
+vect(u) = u[:]
 
 #test de vect
 begin
-    x = [1 3;2 4]
-    @assert(vect(x)==[1,2,3,4])
+    x = rand(2,2)
+    @assert(vect(x)==[x[1,1],x[2,1],x[1,2],x[2,2]])
 end
 
 # reshape a vector into a matrix with 2 columns
@@ -80,20 +87,21 @@ end
 
 # test de devect
 begin
-    x = [1,2,3,4]
-    @assert(devect(x)==[1 3; 2 4])
+    x = rand(4)
+    @assert(devect(x)==[x[1] x[3]; x[2] x[4]])
 end
 
+# input : u of the form [u[:,1] u[:,2]]
+# output : u of the form u[i,c,t]
 function deflatten(u)
-    v = zeros(size(u)[1]÷2,2,size(u)[2])
-    for i in 1:nb_x
-        v[i,1,:]=u[i,:,:]
-        v[i,2,:]=u[nb_x+i,:,:]
+deflatten_u = zeros(size(u)[1]÷2,2,size(u)[2])
+    for t in 1:nb_t
+        deflatten_u[:,:,t] = devect(u[:,t])
     end
-    return v
+    deflatten_u
 end
 
-#################### f and derivatives ####################
+#################### f and its derivatives ####################
 
 f(u) = [p-u[1]*u[2]^2;q-u[2]+u[1]*u[2]^2]
 
@@ -116,23 +124,23 @@ function F(u)
     for i in 1:size(u)[1]
         Fu[i,:] = f(u[i,:])
     end
-    return Fu
+    Fu
 end
 
 # input : u of the form [u[:,1], u[:,2]]
 # output : [f(u[i,:])]
 function F2(u)
     F2u = zero(u)
-    new_size = size(u)[1]÷2
-    for i in 1:new_size
-        fu = f([u[i],u[i+new_size]])
+    x_size = size(u)[1]÷2 # = nb_x in the simulation
+    for i in 1:x_size
+        fu = f([u[i],u[i+x_size]])
         F2u[i] = fu[1]
-        F2u[new_size+i] =fu[2]
+        F2u[x_size+i] =fu[2]
     end
     return F2u
 end
 
-#test
+#test of F2
 begin
     u = rand(50,2)
     Fu1 = F(u)
@@ -141,21 +149,26 @@ begin
 end
 
 # input : u of the form [u[:,1], u[:,2]]
-# output : Jacobian of F at u
+# output : Jacobian of F2 at u
 function JF(u)
-    JFu = zeros(2*nb_x,2*nb_x)
-    for i in 1:nb_x
-        df = Jf([u[i];u[nb_x+i]])
+    x_size = size(u)[1]÷2 # = nb_x in the simulation
+    JFu = zeros(2*x_size,2*x_size)
+    for i in 1:x_size
+        df = Jf([u[i];u[x_size+i]])
         JFu[i,i] = df[1,1]
-        JFu[i,nb_x+i] = df[1,2]
-        JFu[nb_x+i,i] = df[2,1]
-        JFu[nb_x+i,nb_x+i] = df[2,2]
+        JFu[i,x_size+i] = df[1,2]
+        JFu[x_size+i,i] = df[2,1]
+        JFu[x_size+i,x_size+i] = df[2,2]
     end
     return JFu
 end
 
+# test of the jacobian
+begin
+    u = rand()
+end
 
-##################### Euler Explicite ######################
+#################### Euler Explicite ####################
 
 function generic_explicit_euler(u0, f)
     u = zeros(size(u0)[1],nb_t)
@@ -171,7 +184,7 @@ function generic_explicit_euler(u0, f)
 end
 
 # Intégration de l'edp avec la méthode d'Euler explicite
-function euler_explicite(u0)
+function explicit_euler(u0)
     u0 = vect(u0)
     f(u) = D2*M2*u + F2(u)
     sol = generic_explicit_euler(u0,f)
@@ -203,7 +216,7 @@ function generic_implicit_euler(u0,f,Jf)
     return u
 end
 
-function euler_implicite(u0)
+function implicit_euler(u0)
     u0 = vect(u0)
     f(x) = x  - Δt*F2(x) - Δt*D2*M2*x
     Jf(x) = I-Δt*JF(x)-Δt*D2*M2
@@ -213,7 +226,7 @@ function euler_implicite(u0)
     return deflatten(sol)
 end
 
-#################### Boîte noire #######################
+#################### Boîte noire ####################
 function boite_noire(u0)
     u0 = vect(u0)
 
@@ -225,7 +238,7 @@ function boite_noire(u0)
     # résolution
     sol = solve(prob,saveat=Δt)
 
-    return deflatten(reduce(hcat,sol.u))
+    return deflatten(reduce(hcat,sol.u))[:,:,1:nb_t]    # we make sure that the dimensions are (nb_x,2,nb_t)
 end
 
 
@@ -234,34 +247,41 @@ end
 # ̇cn = J(n,d)*cn avec cn le n-ième coefficient de Fourrier de u
 J(n,d) = [-(p+q)^2 -2*p/(p+q); (p+q)^2 -1+2*p/(p+q)] - n^2*[1 0; 0 d]
 
-# Affichage
-#X = [d for d in range(0,0.2,100)]
-#Y = [[maximum(real.(eigen(J(n,d)).values)) for d in X] for n in 0:10]
-#Plots.plot(X,Y, legend=false, ylim=(-2,1))
-
-# simple dichotomie pour trouver la limite de changement de comportement
-function dichotomie(eps)
-    d_min = 1
-    d_max = 0
-    min = maximum([maximum(real.(eigen(J(n,d_min)).values)) for n in 0:20])
-    max = maximum([maximum(real.(eigen(J(n,d_max)).values)) for n in 0:20])
-    while(abs(d_min-d_max)>eps)
-        new_d = (d_min + d_max)/2.0
-        new_e = maximum([maximum(real.(eigen(J(n,new_d)).values)) for n in 0:20])
-        if (new_e<0)
-            min = new_e
-            d_min = new_d
-        else
-            max = new_e
-            d_max = new_d
-        end
-    end
-    return (d_min+d_max)/2.0
+function display_max_eigen_values()
+    X = range(0,0.2,100)
+    Y = [[maximum(real.(eigen(J(n,d)).values)) for d in X] for n in 0:9]
+    Plots.plot(X,Y, legend=false, ylim=(-2,1), xlabel = "d", ylabel = "highest eigen value of J(n,d)")
 end
 
-########################### Calcul de la solution #########################
-#u = euler_explicite(u0)
-#u = euler_implicite(u0)
-u = boite_noire(u0)
+# dichotomy with f an increasing function and f(x_min)<f_target<f(x_max)
+function generic_dichotomy(f,x_min,x_max,fx_target,eps)
+    fx_min = f(x_min)
+    fx_max = f(x_max)
+    while(abs(x_max-x_min)>eps)
+        new_x = (x_min+x_max)/2.0
+        new_fx = f(new_x)
+        if(new_fx<fx_target)
+            fx_min = new_fx
+            x_min = new_x
+        else
+            fx_max = new_fx
+            x_max = new_x
+        end
+    end
+    return (x_min+x_max)/2.0
+end
 
-heatmap(u[:,1,:])
+# finding the absciss of the limit of apparition of the comportement
+function dichotomy(eps)
+    f(d) = - maximum([maximum(real.(eigen(J(n,d)).values)) for n in 0:20])
+    generic_dichotomy(f,0,1,0,eps)
+end
+
+########################### Resolution #########################
+
+u = explicit_euler(u0)
+#u = implicit_euler(u0)
+#u = boite_noire(u0)
+
+# heatmap(range(0,T,nb_t),range(0,2pi,nb_x),u[:,1,:], xlabel = "Time", ylabel = "Space")
+heatmap(range(0,T,nb_t),range(0,2pi,nb_x),u[:,2,:], xlabel = "Time", ylabel = "Space")
